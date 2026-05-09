@@ -42,7 +42,7 @@ export function VoiceStatus({ isSecureContext, isSupported, isListening, lastTra
     <section className="panel voice-panel" aria-label="音声状態">
       <div className="panel-heading">
         <h2>音声操作</h2>
-        <span className={isListening ? "status-pill listening" : "status-pill"}>{isListening ? "待機中" : "停止中"}</span>
+        <span className={isListening ? "status-pill listening" : "status-pill"}>{isListening ? "聞き取り中" : "停止中"}</span>
       </div>
       <dl className="status-list">
         <div>

@@ -52,7 +52,7 @@ export function ControlBar({
         </button>
         <button type="button" className={voiceEnabled ? "active-button" : ""} onClick={onToggleVoice}>
           {voiceEnabled ? <Mic aria-hidden="true" size={22} /> : <MicOff aria-hidden="true" size={22} />}
-          音声
+          {voiceEnabled ? "聞き取り" : "聞く"}
         </button>
       </div>
     </section>

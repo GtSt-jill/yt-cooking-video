@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useMemo, useState } from "react";
 import { AutoPausePanel } from "./components/AutoPausePanel";
 import { BookmarkList } from "./components/BookmarkList";
 import { ControlBar } from "./components/ControlBar";
@@ -15,7 +15,6 @@ import type { Bookmark } from "./types/bookmark";
 import type { VoiceCommand } from "./types/speech";
 
 type Settings = {
-  voiceEnabled: boolean;
   autoPauseEnabled: boolean;
   autoPauseIntervalSeconds: 15 | 30 | 60;
 };
@@ -23,7 +22,6 @@ type Settings = {
 type BookmarkMap = Record<string, Bookmark[]>;
 
 const DEFAULT_SETTINGS: Settings = {
-  voiceEnabled: false,
   autoPauseEnabled: false,
   autoPauseIntervalSeconds: 30
 };
@@ -43,6 +41,7 @@ export default function App() {
   const [lastVideoUrl, setLastVideoUrl] = useLocalStorage(STORAGE_KEYS.lastVideoUrl, "");
   const [settings, setSettings] = useLocalStorage<Settings>(STORAGE_KEYS.settings, DEFAULT_SETTINGS);
   const [bookmarkMap, setBookmarkMap] = useLocalStorage<BookmarkMap>(STORAGE_KEYS.bookmarks, {});
+  const [voiceActive, setVoiceActive] = useState(false);
   const [videoId, setVideoId] = useState<string | null>(() => {
     const parsed = parseYouTubeUrl(lastVideoUrl);
     return parsed.ok ? parsed.videoId : null;
@@ -51,12 +50,6 @@ export default function App() {
 
   const player = useYouTubePlayer(videoId);
   const bookmarks = useMemo(() => (videoId ? bookmarkMap[videoId] ?? [] : []), [bookmarkMap, videoId]);
-
-  useEffect(() => {
-    if (settings.voiceEnabled) {
-      setSettings((current) => ({ ...current, voiceEnabled: false }));
-    }
-  }, []);
 
   const saveBookmark = useCallback(() => {
     if (!videoId || !player.isReady) {
@@ -112,8 +105,9 @@ export default function App() {
   );
 
   const speech = useSpeechCommands({
-    enabled: settings.voiceEnabled,
-    onCommand: handleCommand
+    enabled: voiceActive,
+    onCommand: handleCommand,
+    onFinished: () => setVoiceActive(false)
   });
 
   useAutoPause({
@@ -138,6 +132,18 @@ export default function App() {
 
   function updateSettings(patch: Partial<Settings>) {
     setSettings((current) => ({ ...current, ...patch }));
+  }
+
+  function startVoiceCommand() {
+    if (voiceActive) {
+      setVoiceActive(false);
+      return;
+    }
+
+    if (player.isPlaying) {
+      player.pause();
+    }
+    setVoiceActive(true);
   }
 
   function deleteBookmark(bookmarkId: string) {
@@ -171,12 +177,12 @@ export default function App() {
             isPlaying={player.isPlaying}
             currentTime={player.currentTime}
             duration={player.duration}
-            voiceEnabled={settings.voiceEnabled}
+            voiceEnabled={voiceActive}
             onPlay={player.play}
             onPause={player.pause}
             onSeekBy={player.seekBy}
             onSaveBookmark={saveBookmark}
-            onToggleVoice={() => updateSettings({ voiceEnabled: !settings.voiceEnabled })}
+            onToggleVoice={startVoiceCommand}
           />
         </div>
 
