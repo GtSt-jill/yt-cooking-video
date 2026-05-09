@@ -11,25 +11,38 @@ type UseSpeechCommandsParams = {
 export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParams) {
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const enabledRef = useRef(enabled);
+  const onCommandRef = useRef(onCommand);
   const [isListening, setIsListening] = useState(false);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [lastCommand, setLastCommand] = useState<VoiceCommand | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  const RecognitionConstructor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
-  const isSupported = Boolean(RecognitionConstructor);
+  const isSecureContext = window.isSecureContext;
+  const isSupported = Boolean(window.SpeechRecognition ?? window.webkitSpeechRecognition);
 
   useEffect(() => {
     enabledRef.current = enabled;
   }, [enabled]);
 
+  useEffect(() => {
+    onCommandRef.current = onCommand;
+  }, [onCommand]);
+
   const stop = useCallback(() => {
     enabledRef.current = false;
     recognitionRef.current?.stop();
+    recognitionRef.current = null;
     setIsListening(false);
   }, []);
 
   const start = useCallback(() => {
+    const RecognitionConstructor = window.SpeechRecognition ?? window.webkitSpeechRecognition;
+
+    if (!window.isSecureContext) {
+      setError("音声操作には HTTPS または localhost での表示が必要です。");
+      return;
+    }
+
     if (!RecognitionConstructor) {
       setError("このブラウザでは音声操作を利用できません。");
       return;
@@ -55,11 +68,15 @@ export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParam
       const command = parseVoiceCommand(transcript);
       if (command) {
         setLastCommand(command);
-        onCommand(command);
+        onCommandRef.current(command);
       }
     };
     recognition.onerror = (event) => {
-      setError(`音声認識エラー: ${event.error}`);
+      const message =
+        event.error === "not-allowed"
+          ? "マイクの利用が許可されていません。ブラウザの権限設定を確認してください。"
+          : `音声認識エラー: ${event.error}`;
+      setError(message);
     };
     recognition.onend = () => {
       recognitionRef.current = null;
@@ -75,9 +92,15 @@ export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParam
     };
 
     recognitionRef.current = recognition;
-    recognition.start();
-    setIsListening(true);
-  }, [RecognitionConstructor, onCommand]);
+    try {
+      recognition.start();
+      setIsListening(true);
+    } catch {
+      recognitionRef.current = null;
+      setIsListening(false);
+      setError("音声認識を開始できませんでした。音声ボタンを一度 OFF にしてから再度 ON にしてください。");
+    }
+  }, []);
 
   useEffect(() => {
     if (enabled) {
@@ -93,6 +116,7 @@ export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParam
   }, [enabled, start, stop]);
 
   return {
+    isSecureContext,
     isSupported,
     isListening,
     lastTranscript,

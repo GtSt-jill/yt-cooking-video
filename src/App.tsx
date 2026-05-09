@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { AutoPausePanel } from "./components/AutoPausePanel";
 import { BookmarkList } from "./components/BookmarkList";
 import { ControlBar } from "./components/ControlBar";
@@ -51,6 +51,12 @@ export default function App() {
 
   const player = useYouTubePlayer(videoId);
   const bookmarks = useMemo(() => (videoId ? bookmarkMap[videoId] ?? [] : []), [bookmarkMap, videoId]);
+
+  useEffect(() => {
+    if (settings.voiceEnabled) {
+      setSettings((current) => ({ ...current, voiceEnabled: false }));
+    }
+  }, []);
 
   const saveBookmark = useCallback(() => {
     if (!videoId || !player.isReady) {
@@ -182,6 +188,7 @@ export default function App() {
             onIntervalChange={(seconds) => updateSettings({ autoPauseIntervalSeconds: seconds })}
           />
           <VoiceStatus
+            isSecureContext={speech.isSecureContext}
             isSupported={speech.isSupported}
             isListening={speech.isListening}
             lastTranscript={speech.lastTranscript}

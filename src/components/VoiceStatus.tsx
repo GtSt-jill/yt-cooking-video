@@ -1,6 +1,7 @@
 import type { VoiceCommand } from "../types/speech";
 
 type VoiceStatusProps = {
+  isSecureContext: boolean;
   isSupported: boolean;
   isListening: boolean;
   lastTranscript: string | null;
@@ -29,7 +30,14 @@ function commandLabel(command: VoiceCommand | null): string {
   }
 }
 
-export function VoiceStatus({ isSupported, isListening, lastTranscript, lastCommand, error }: VoiceStatusProps) {
+export function VoiceStatus({ isSecureContext, isSupported, isListening, lastTranscript, lastCommand, error }: VoiceStatusProps) {
+  const supportText = isSupported ? "対応ブラウザ" : "非対応";
+  const hint = !isSecureContext
+    ? "音声操作には HTTPS または localhost が必要です。"
+    : !isSupported
+      ? "Chrome または Edge の最新版で試してください。"
+      : null;
+
   return (
     <section className="panel voice-panel" aria-label="音声状態">
       <div className="panel-heading">
@@ -39,7 +47,7 @@ export function VoiceStatus({ isSupported, isListening, lastTranscript, lastComm
       <dl className="status-list">
         <div>
           <dt>対応</dt>
-          <dd>{isSupported ? "対応ブラウザ" : "非対応"}</dd>
+          <dd>{supportText}</dd>
         </div>
         <div>
           <dt>認識</dt>
@@ -50,6 +58,7 @@ export function VoiceStatus({ isSupported, isListening, lastTranscript, lastComm
           <dd>{commandLabel(lastCommand)}</dd>
         </div>
       </dl>
+      {hint ? <p className="muted-text voice-hint">{hint}</p> : null}
       {error ? <p className="error-text">{error}</p> : null}
     </section>
   );

@@ -342,6 +342,10 @@ h2 {
   color: #627d98;
 }
 
+.voice-hint {
+  margin-top: 10px;
+}
+
 .error-text {
   margin: 8px 0 0;
   color: #c92a2a;
