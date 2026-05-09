@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { parseVoiceCommand } from "../lib/commandParser";
-import type { BrowserSpeechRecognition } from "../types/browserSpeech";
+import type { BrowserSpeechRecognition, SpeechRecognitionEventLike } from "../types/browserSpeech";
 import type { VoiceCommand } from "../types/speech";
 
 type UseSpeechCommandsParams = {
@@ -12,6 +12,10 @@ export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParam
   const recognitionRef = useRef<BrowserSpeechRecognition | null>(null);
   const enabledRef = useRef(enabled);
   const onCommandRef = useRef(onCommand);
+  const lastCommandRef = useRef<{ key: string; at: number } | null>(null);
+  const lastErrorRef = useRef<string | null>(null);
+  const restartTimerRef = useRef<number | null>(null);
+  const networkRetryCountRef = useRef(0);
   const [isListening, setIsListening] = useState(false);
   const [lastTranscript, setLastTranscript] = useState<string | null>(null);
   const [lastCommand, setLastCommand] = useState<VoiceCommand | null>(null);
@@ -30,6 +34,10 @@ export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParam
 
   const stop = useCallback(() => {
     enabledRef.current = false;
+    if (restartTimerRef.current !== null) {
+      window.clearTimeout(restartTimerRef.current);
+      restartTimerRef.current = null;
+    }
     recognitionRef.current?.stop();
     recognitionRef.current = null;
     setIsListening(false);
@@ -54,40 +62,63 @@ export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParam
 
     enabledRef.current = true;
     setError(null);
+    lastErrorRef.current = null;
 
     const recognition = new RecognitionConstructor();
     recognition.lang = "ja-JP";
     recognition.continuous = true;
-    recognition.interimResults = false;
-    recognition.maxAlternatives = 1;
+    recognition.interimResults = true;
+    recognition.maxAlternatives = 5;
     recognition.onresult = (event) => {
-      const latestResult = event.results[event.results.length - 1];
-      const transcript = latestResult?.[0]?.transcript ?? "";
-      setLastTranscript(transcript);
+      networkRetryCountRef.current = 0;
+      lastErrorRef.current = null;
+      setError(null);
 
-      const command = parseVoiceCommand(transcript);
+      const transcripts = collectTranscripts(event);
+      const transcript = transcripts[0] ?? "";
+
+      if (transcript) {
+        setLastTranscript(transcript);
+      }
+
+      const command = transcripts.map((candidate) => parseVoiceCommand(candidate)).find((candidate) => candidate !== null) ?? null;
       if (command) {
+        const commandKey = JSON.stringify(command);
+        const now = Date.now();
+        const lastCommand = lastCommandRef.current;
+        if (lastCommand?.key === commandKey && now - lastCommand.at < 1200) {
+          return;
+        }
+
+        lastCommandRef.current = { key: commandKey, at: now };
         setLastCommand(command);
         onCommandRef.current(command);
       }
     };
     recognition.onerror = (event) => {
-      const message =
-        event.error === "not-allowed"
-          ? "マイクの利用が許可されていません。ブラウザの権限設定を確認してください。"
-          : `音声認識エラー: ${event.error}`;
-      setError(message);
+      lastErrorRef.current = event.error;
+      setError(errorMessageForSpeechRecognition(event.error));
+
+      if (isFatalSpeechError(event.error)) {
+        enabledRef.current = false;
+      }
     };
     recognition.onend = () => {
       recognitionRef.current = null;
       setIsListening(false);
 
       if (enabledRef.current) {
-        window.setTimeout(() => {
+        const delay = restartDelayForError(lastErrorRef.current, networkRetryCountRef.current);
+        if (lastErrorRef.current === "network") {
+          networkRetryCountRef.current += 1;
+        }
+
+        restartTimerRef.current = window.setTimeout(() => {
+          restartTimerRef.current = null;
           if (enabledRef.current) {
             start();
           }
-        }, 300);
+        }, delay);
       }
     };
 
@@ -110,6 +141,10 @@ export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParam
     }
 
     return () => {
+      if (restartTimerRef.current !== null) {
+        window.clearTimeout(restartTimerRef.current);
+        restartTimerRef.current = null;
+      }
       recognitionRef.current?.stop();
       recognitionRef.current = null;
     };
@@ -123,4 +158,54 @@ export function useSpeechCommands({ enabled, onCommand }: UseSpeechCommandsParam
     lastCommand,
     error
   };
+}
+
+function errorMessageForSpeechRecognition(error: string): string {
+  if (error === "network") {
+    if (navigator.onLine === false) {
+      return "ネットワークがオフラインのため音声認識に接続できません。接続が戻ると自動で再試行します。";
+    }
+    return "音声認識サービスへの接続に失敗しました。数秒後に自動で再試行します。";
+  }
+
+  if (error === "not-allowed" || error === "service-not-allowed") {
+    return "マイクまたは音声認識サービスの利用が許可されていません。ブラウザの権限設定を確認してください。";
+  }
+
+  if (error === "audio-capture") {
+    return "マイクを利用できません。別のアプリがマイクを使用していないか確認してください。";
+  }
+
+  if (error === "no-speech") {
+    return "音声を検出できませんでした。音声操作は継続して待機します。";
+  }
+
+  return `音声認識エラー: ${error}`;
+}
+
+function isFatalSpeechError(error: string): boolean {
+  return error === "not-allowed" || error === "service-not-allowed" || error === "audio-capture";
+}
+
+function restartDelayForError(error: string | null, retryCount: number): number {
+  if (error === "network") {
+    return Math.min(15000, 2000 * 2 ** retryCount);
+  }
+
+  if (error === "no-speech") {
+    return 800;
+  }
+
+  return 300;
+}
+
+function collectTranscripts(event: SpeechRecognitionEventLike): string[] {
+  const latestResult = event.results[event.results.length - 1];
+  if (!latestResult) {
+    return [];
+  }
+
+  return Array.from(latestResult)
+    .map((candidate) => candidate.transcript.trim())
+    .filter(Boolean);
 }

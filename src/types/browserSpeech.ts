@@ -1,5 +1,6 @@
 export type SpeechRecognitionResultLike = {
   transcript: string;
+  confidence?: number;
   isFinal?: boolean;
 };
 
